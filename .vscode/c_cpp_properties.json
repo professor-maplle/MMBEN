@@ -16,6 +16,7 @@
             ],
             "compilerPath": "clang",
             "cStandard": "c99",
+            "cppStandard": "c++20",
             "intelliSenseMode": "clang-x86"
         }
     ],
