@@ -26,6 +26,7 @@ extern BenBrainMode gBenBrainMode;
 void ben_director_scripted_tick(PlayState* play);
 
 // Executor: drains the command queue and runs powers. Game thread only.
-void ben_executor_tick(void);
+// Takes `play` because some powers manipulate live game systems (e.g. messages).
+void ben_executor_tick(PlayState* play);
 
 #endif

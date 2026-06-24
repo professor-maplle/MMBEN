@@ -39,5 +39,5 @@ void ben_on_play_update(PlayState* play) {
     }
 
     // Carry out whatever the director queued this frame.
-    ben_executor_tick();
+    ben_executor_tick(play);
 }

@@ -82,3 +82,63 @@ void ben_power_hush(void) {
     ben_set_line(""); // blank the line; the (now-empty) overlay stays shown
     recomp_printf("[BEN] hush\n");
 }
+
+// --- TEXTBOX: BEN hijacks the game's native dialogue system ------------------
+//
+// Sentinel text id: not a real message and below the 0x4E20 credits cutoff, so
+// Message_OpenText takes the English (NES) path and Message_FindMessageNES
+// harmlessly falls back to the first table entry (valid DMA). We immediately
+// overwrite that loaded message with BEN's own bytes before it gets decoded.
+#define BEN_TEXT_ID 0x3FFF
+
+// MM NES message format: 11-byte header, ASCII body, 0xBF (MESSAGE_END) terminator.
+#define BEN_MSG_END 0xBF
+
+void ben_power_textbox(PlayState* play, const char* text) {
+    MessageContext* msgCtx = &play->msgCtx;
+    Font* font = &msgCtx->font;
+    char* buf = font->msgBuf.schar;
+    s32 i;
+    s32 j;
+
+    // Only intrude when nothing else is on screen, so we don't stomp a real
+    // textbox or fire during a state that can't display one.
+    if (msgCtx->msgMode != MSGMODE_NONE) {
+        return;
+    }
+
+    // Load a real message (safe DMA + message-system setup), then overwrite it.
+    Message_StartTextbox(play, BEN_TEXT_ID, NULL);
+
+    // 11-byte header: unk11F08 = 0x0000 -> textBoxType 0 (black box); itemId 0xFE
+    // (none); remaining header fields zero. Message_DecodeNES calls
+    // Message_DecodeHeader, which consumes exactly these 11 bytes.
+    i = 0;
+    buf[i++] = 0x00; buf[i++] = 0x00;            // unk11F08 (box type/pos/flags)
+    buf[i++] = (char)0xFE;                        // itemId: none
+    buf[i++] = (char)0xFF; buf[i++] = (char)0xFF; // nextTextId = 0xFFFF: no follow-up box
+    buf[i++] = 0x00; buf[i++] = 0x00;            // unk1206C
+    buf[i++] = 0x00; buf[i++] = 0x00;       // unk12070
+    buf[i++] = 0x00; buf[i++] = 0x00;       // unk12074
+
+    // ASCII body (the NES font is ASCII-indexed), leaving room for the terminator.
+    for (j = 0; text[j] != '\0' && i < (s32)(sizeof(font->msgBuf.schar) - 1); j++) {
+        buf[i++] = (s8)text[j];
+    }
+    buf[i++] = (s8)BEN_MSG_END;
+
+    msgCtx->msgLength = i;
+    msgCtx->msgBufPos = 0;
+    msgCtx->decodedTextLen = 0;
+
+    // Re-parse the header for OUR bytes (mirrors Message_OpenText) so the black
+    // box is chosen instead of the sentinel message's box type.
+    msgCtx->unk11F08 = (((u8)buf[0]) << 8) | (u8)buf[1];
+    msgCtx->unk11F18 = (msgCtx->unk11F08 & 0xF000) >> 12;
+    msgCtx->textBoxType = (msgCtx->unk11F08 & 0xF00) >> 8;
+    msgCtx->textBoxPos = (msgCtx->unk11F08 & 0xF0) >> 4;
+    msgCtx->unk11F0C = msgCtx->unk11F08 & 0xF;
+    msgCtx->itemId = 0xFE;
+
+    recomp_printf("[BEN] textbox: %s\n", text);
+}

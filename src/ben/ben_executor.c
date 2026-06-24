@@ -12,7 +12,7 @@
 // Frames remaining before BEN's current line is auto-hidden (0 = nothing shown).
 static s32 sSpeakTimer;
 
-void ben_executor_tick(void) {
+void ben_executor_tick(PlayState* play) {
     BenCommand cmd;
 
     while (ben_queue_pop(&cmd)) {
@@ -28,6 +28,9 @@ void ben_executor_tick(void) {
                 sSpeakTimer = duration;
                 break;
             }
+            case BEN_POWER_TEXTBOX:
+                ben_power_textbox(play, cmd.text);
+                break;
             case BEN_POWER_HUSH:
                 ben_power_hush();
                 sSpeakTimer = 0;

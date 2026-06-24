@@ -16,8 +16,9 @@
 
 typedef enum {
     BEN_POWER_NONE = 0,
-    BEN_POWER_SPEAK, // show a line of dialogue. text = line, ix = frames to show
-    BEN_POWER_HUSH,  // hide the dialogue overlay
+    BEN_POWER_SPEAK,   // overlay line of dialogue. text = line, ix = frames to show
+    BEN_POWER_TEXTBOX, // speak through the game's native dialogue box. text = line
+    BEN_POWER_HUSH,    // hide the dialogue overlay
     BEN_POWER_COUNT
 } BenPowerId;
 

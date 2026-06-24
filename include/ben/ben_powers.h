@@ -16,4 +16,9 @@ void ben_power_speak(const char* text);
 // HUSH: hide the dialogue overlay immediately.
 void ben_power_hush(void);
 
+// TEXTBOX: speak through the game's own dialogue box by hijacking the message
+// system — BEN wearing a native function. The player dismisses it with A/B like
+// any textbox. No-op if a message is already on screen.
+void ben_power_textbox(PlayState* play, const char* text);
+
 #endif
