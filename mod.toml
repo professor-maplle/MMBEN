@@ -45,9 +45,10 @@ optional_dependencies = [
 ]
 
 # Native libraries (e.g. DLLs) and the functions they export.
+# ben_bridge is BEN's host-side bridge; its file must sit beside this mod's .nrm
+# in the mods folder as ben_bridge.dylib / .so / .dll.
 native_libraries = [
-# Example native library:
-#    { name = "my_native_library", funcs = ["my_native_library_function"] }
+    { name = "ben_bridge", funcs = [ "ben_bridge_ping", "ben_bridge_configure", "ben_bridge_think", "ben_bridge_poll" ] }
 ]
 
 # Inputs to the mod tool.

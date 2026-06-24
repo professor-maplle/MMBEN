@@ -16,9 +16,10 @@
 
 typedef enum {
     BEN_POWER_NONE = 0,
-    BEN_POWER_SPEAK,   // overlay line of dialogue. text = line, ix = frames to show
-    BEN_POWER_TEXTBOX, // speak through the game's native dialogue box. text = line
-    BEN_POWER_HUSH,    // hide the dialogue overlay
+    BEN_POWER_SPEAK,        // overlay line of dialogue. text = line, ix = frames to show
+    BEN_POWER_TEXTBOX,      // speak through the game's native dialogue box. text = line
+    BEN_POWER_HUSH,         // hide the dialogue overlay
+    BEN_POWER_SPAWN_STATUE, // spawn BEN's Elegy of Emptiness statue by the player
     BEN_POWER_COUNT
 } BenPowerId;
 
@@ -43,5 +44,9 @@ bool ben_queue_push(const BenCommand* cmd);
 
 // Pop the oldest command into `out`. Returns false if the queue is empty.
 bool ben_queue_pop(BenCommand* out);
+
+// Copy a C string into a command's fixed inline text buffer (truncates to fit,
+// always NUL-terminated). No libc dependency.
+void ben_cmd_set_text(BenCommand* cmd, const char* text);
 
 #endif

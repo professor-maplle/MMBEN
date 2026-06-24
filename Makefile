@@ -51,6 +51,21 @@ endif
 $(C_OBJS): $(BUILD_DIR)/%.o : %.c | $(BUILD_DIRS)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $< -MMD -MF $(@:.o=.d) -c -o $@
 
+# --- Native bridge library (host-side; reaches the OS / the local LLM) --------
+# Built with the HOST C++ compiler (NOT the MIPS one). Produces ben_bridge.dylib,
+# which the runtime loads as a loose file beside the .nrm in the mods folder.
+# The extension is macOS-only for now; .so/.dll handled when we cross-build.
+NATIVE_DIR   := native
+NATIVE_CXX   ?= clang++
+NATIVE_LIB   := $(BUILD_DIR)/ben_bridge.dylib
+NATIVE_SRCS  := $(call rwildcard,$(NATIVE_DIR),*.cpp)
+NATIVE_FLAGS := -std=c++20 -O2 -fPIC -I offline_build -I $(NATIVE_DIR) -I $(NATIVE_DIR)/thirdparty -I include
+
+native: $(NATIVE_LIB)
+
+$(NATIVE_LIB): $(NATIVE_SRCS) | $(BUILD_DIR)
+	$(NATIVE_CXX) -dynamiclib $(NATIVE_FLAGS) $(NATIVE_SRCS) -o $@
+
 clean:
 ifeq ($(OS),Windows_NT)
 	if exist $(BUILD_DIR) rmdir /S /Q $(BUILD_DIR)
@@ -60,7 +75,7 @@ endif
 
 -include $(ALL_DEPS)
 
-.PHONY: clean all
+.PHONY: clean all native
 
 # Print target for debugging
 print-% : ; $(info $* is a $(flavor $*) variable set to [$($*)]) @true

@@ -92,7 +92,14 @@ void ben_power_hush(void) {
 #define BEN_TEXT_ID 0x3FFF
 
 // MM NES message format: 11-byte header, ASCII body, 0xBF (MESSAGE_END) terminator.
-#define BEN_MSG_END 0xBF
+#define BEN_MSG_END     0xBF
+#define BEN_MSG_NEWLINE 0x11 // MM NES newline control code
+// The renderer tracks only 3 lines (msgCtx->unk11F1A[3]); a 4th line overflows
+// it and crashes, and an unbroken line runs off the box. So we word-wrap BEN's
+// text into at most BEN_MAX_LINES lines of about BEN_WRAP_WIDTH characters. The
+// working single line "i know you're there." (~20 chars) sets the safe width.
+#define BEN_WRAP_WIDTH  28
+#define BEN_MAX_LINES   3
 
 void ben_power_textbox(PlayState* play, const char* text) {
     MessageContext* msgCtx = &play->msgCtx;
@@ -121,11 +128,49 @@ void ben_power_textbox(PlayState* play, const char* text) {
     buf[i++] = 0x00; buf[i++] = 0x00;       // unk12070
     buf[i++] = 0x00; buf[i++] = 0x00;       // unk12074
 
-    // ASCII body (the NES font is ASCII-indexed), leaving room for the terminator.
-    for (j = 0; text[j] != '\0' && i < (s32)(sizeof(font->msgBuf.schar) - 1); j++) {
-        buf[i++] = (s8)text[j];
+    // ASCII body (the NES font is ASCII-indexed), word-wrapped into lines so it
+    // fits the box and stays within the renderer's 3-line limit.
+    {
+        s32 line_len = 0;
+        s32 lines = 1;
+        s32 cap = (s32)sizeof(font->msgBuf.schar) - 2; // leave room for END + NUL
+
+        j = 0;
+        while (text[j] != '\0' && i < cap) {
+            // Measure the next word [j, k).
+            s32 k = j;
+            while (text[k] != '\0' && text[k] != ' ') {
+                k++;
+            }
+            s32 word_len = k - j;
+
+            if (line_len > 0 && line_len + 1 + word_len > BEN_WRAP_WIDTH) {
+                // Word won't fit on this line: break to a new one, or stop if we
+                // have used all the lines the box can hold.
+                if (lines >= BEN_MAX_LINES) {
+                    break;
+                }
+                buf[i++] = (char)BEN_MSG_NEWLINE;
+                lines++;
+                line_len = 0;
+            } else if (line_len > 0) {
+                buf[i++] = ' ';
+                line_len++;
+            }
+
+            // Emit the word (a single over-long word is hard-truncated to fit).
+            for (s32 w = 0; w < word_len && i < cap; w++) {
+                buf[i++] = text[j + w];
+                line_len++;
+            }
+
+            j = k;
+            while (text[j] == ' ') {
+                j++;
+            }
+        }
     }
-    buf[i++] = (s8)BEN_MSG_END;
+    buf[i++] = (char)BEN_MSG_END;
 
     msgCtx->msgLength = i;
     msgCtx->msgBufPos = 0;
@@ -141,4 +186,22 @@ void ben_power_textbox(PlayState* play, const char* text) {
     msgCtx->itemId = 0xFE;
 
     recomp_printf("[BEN] textbox: %s\n", text);
+}
+
+void ben_power_spawn_statue(PlayState* play) {
+    Player* player = GET_PLAYER(play);
+    if (player == NULL) {
+        return;
+    }
+
+    // Spawn the Elegy of Emptiness statue (En_Torch2) of the player's current form
+    // where they stand, facing as they face — exactly how the game makes it
+    // (z_player.c func_80848640), minus the respawn-point setup and transform
+    // beam. En_Torch2 uses gameplay_keep, so it is safe to spawn in any scene.
+    Actor_Spawn(&play->actorCtx, play, ACTOR_EN_TORCH2,
+                player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z,
+                0, player->actor.shape.rot.y, 0,
+                player->transformation);
+
+    recomp_printf("[BEN] statue spawned (form %d)\n", (s32)player->transformation);
 }

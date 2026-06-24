@@ -35,3 +35,12 @@ bool ben_queue_pop(BenCommand* out) {
     sCount--;
     return true;
 }
+
+void ben_cmd_set_text(BenCommand* cmd, const char* text) {
+    u32 i = 0;
+    while (text[i] != '\0' && i < BEN_TEXT_MAX - 1) {
+        cmd->text[i] = text[i];
+        i++;
+    }
+    cmd->text[i] = '\0';
+}

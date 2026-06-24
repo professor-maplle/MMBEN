@@ -31,6 +31,9 @@ void ben_executor_tick(PlayState* play) {
             case BEN_POWER_TEXTBOX:
                 ben_power_textbox(play, cmd.text);
                 break;
+            case BEN_POWER_SPAWN_STATUE:
+                ben_power_spawn_statue(play);
+                break;
             case BEN_POWER_HUSH:
                 ben_power_hush();
                 sSpeakTimer = 0;
