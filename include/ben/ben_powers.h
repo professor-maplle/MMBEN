@@ -1,0 +1,19 @@
+#ifndef BEN_POWERS_H
+#define BEN_POWERS_H
+
+// "BEN's hands": the only code that actually manipulates the game. Each power is
+// invoked by the executor in response to a BenCommand, never directly by a
+// director. New abilities (move the statue, lock the player, glitch the screen)
+// are added here as the mod grows.
+
+// Build BEN's on-screen voice overlay. Call once, from recomp_on_init.
+void ben_powers_init(void);
+
+// SPEAK: set the dialogue text and reveal the overlay. The executor hides it
+// again when the command's display timer elapses.
+void ben_power_speak(const char* text);
+
+// HUSH: hide the dialogue overlay immediately.
+void ben_power_hush(void);
+
+#endif
