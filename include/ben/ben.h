@@ -33,6 +33,11 @@ bool ben_player_in_control(PlayState* play);
 // time, location, form, health) into `out` for BEN to reason about.
 void ben_describe_situation(PlayState* play, char* out, u32 max);
 
+// Hijack: BEN's words bleed into the next NPC/sign textbox the player opens.
+// `ben_hijack_set_pending` stores the line; the Message_OpenText hooks deliver it.
+void ben_hijack_set_pending(const char* text);
+bool ben_hijack_pending_ready(void);
+
 // Directors: policies that observe the game and emit BenCommands. The scripted
 // one is the deterministic fallback; the AI one drives BEN via the native bridge.
 void ben_director_scripted_tick(PlayState* play);

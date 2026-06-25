@@ -16,9 +16,19 @@ void ben_power_speak(const char* text);
 // HUSH: hide the dialogue overlay immediately.
 void ben_power_hush(void);
 
-// TEXTBOX: speak through the game's own dialogue box by hijacking the message
-// system — BEN wearing a native function. The player dismisses it with A/B like
-// any textbox. No-op if a message is already on screen.
+// Sentinel text id BEN uses for his own textboxes (an unused id below the credits
+// cutoff). Shared so the hijack hook can tell BEN's own boxes from the game's.
+#define BEN_TEXT_ID 0x3FFF
+
+// Overwrite the loaded message's text with BEN's words.
+//   keep_header = false: write a fresh black-box header too (BEN's own box).
+//   keep_header = true:  leave the loaded 11-byte header untouched and replace
+//     only the words, so a hijacked NPC/sign behaves exactly like its real line
+//     and its state machine ends cleanly (no freeze).
+void ben_write_message(PlayState* play, const char* text, bool keep_header);
+
+// TEXTBOX: force BEN's own dialogue box on screen now (reserved for urgent lines).
+// No-op if a message is already up.
 void ben_power_textbox(PlayState* play, const char* text);
 
 // SPAWN_STATUE: make BEN's avatar — the Elegy of Emptiness statue of the player's

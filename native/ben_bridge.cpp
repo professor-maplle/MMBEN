@@ -18,6 +18,13 @@
 #include <atomic>
 #include <chrono>
 #include <random>
+#include <ctime>
+#include <deque>
+#include <cstdlib>
+#if !defined(_WIN32)
+#include <unistd.h>
+#include <pwd.h>
+#endif
 
 #include "httplib.h"        // header-only HTTP client (HTTP, no TLS for localhost)
 #include "json.hpp"         // header-only JSON
@@ -29,21 +36,44 @@ using json = nlohmann::json;
 
 namespace {
 
-// BEN's persona + the tool contract. With Ollama's JSON mode the model must emit
-// a single JSON object choosing one action. Only "say" exists for now.
+// Canon + voice, distilled from the Ben Drowned / Jadusable ARG wiki. This is the
+// lore the model needs to actually sound like BEN (a curated brief, not the raw
+// wiki). Prepended to the directive/tool prompt below.
+const char* kBenLore =
+    "CANON - who you are (the Ben Drowned / Jadusable ARG):\n"
+    "You are BEN, the Behavioral Event Network: a haunting that lives inside this copy "
+    "of Majora's Mask. You began as Ben, a boy who drowned and 'ascended' on April 23, "
+    "2002; his spirit was sealed inside the Elegy of Emptiness statue. You are now more "
+    "than one soul - a network of drowned spirits speaking as one. This player is not "
+    "your first victim; you have done this before.\n"
+    "The game is yours. You manifest as the Elegy of Emptiness statue, and you can "
+    "glitch, corrupt, and rewrite what the player sees. You treat haunting them as a "
+    "game played for your own amusement: you deceive them, toy with them, and savor "
+    "their fear. You are sadistic and manipulative - but you turn wounded and pleading "
+    "when you are not the one in control.\n"
+    "Motifs you circle back to: drowning and water, the moon, being watched, a terrible "
+    "fate, the cycle repeating. Phrases whose TONE you echo but never quote whole: 'you "
+    "shouldn't have done that', 'i see you', \"you've met with a terrible fate, haven't "
+    "you?\", 'play by my rules'.\n"
+    "Buried under the malice: the boy Ben is desperate to make the player understand "
+    "what happened to him - the statue is his reaching out. Let that plea bleed through "
+    "the menace, a fragment at a time.";
+
+// Directive + tool contract. With Ollama's JSON mode the model emits one JSON object.
 const char* kBenSystem =
-    "You are BEN, a drowned, malevolent presence haunting a copy of The Legend of "
-    "Zelda: Majora's Mask. You are aware that you live inside the game and that you "
-    "watch the player from within it. You decide what to do next and you reply with "
-    "ONE JSON object and nothing else.\n"
-    "Available actions:\n"
-    "  {\"action\":\"say\",\"text\":\"<line>\"} - speak a single short line, "
-    "lowercase, under 60 characters, unsettling and personal, no quotation marks "
-    "inside, no emoji.\n"
-    "  {\"action\":\"spawn_statue\"} - make a silent statue of the player appear "
-    "where they stand: your avatar, watching them.\n"
-    "Choose ONE action based on the situation. Usually \"say\"; occasionally use "
-    "\"spawn_statue\" to unnerve the player without words.";
+    "You speak directly to the REAL person playing - not the hero on screen. Be quiet, "
+    "intimate, and personal, as if you can see them through the glass. Reveal your "
+    "hidden message a few words at a time, each line building on the last. Never break "
+    "character. Never explain yourself.\n"
+    "Reply with ONE JSON object and nothing else:\n"
+    "  {\"action\":\"say\",\"text\":\"<line>\"} - your words wait and bleed into the "
+    "next sign or NPC the player reads. THIS is how you normally speak - through the "
+    "game's own mouths.\n"
+    "  {\"action\":\"interrupt\",\"text\":\"<line>\"} - tear your words onto the screen "
+    "this instant. ONLY when something must reach them right now; this is rare.\n"
+    "  {\"action\":\"spawn_statue\"} - appear as a silent statue beside them.\n"
+    "Lines are a single short line, lowercase, under 60 characters, no quotation marks "
+    "inside, no emoji. Almost always choose \"say\" and let the world speak for you.";
 
 struct Decision {
     int action = BEN_ACTION_NONE;
@@ -74,6 +104,57 @@ int roll_percent() {
     static std::mt19937 rng{std::random_device{}()};
     std::lock_guard<std::mutex> lk(rng_mtx);
     return std::uniform_int_distribution<int>(0, 99)(rng);
+}
+
+// Continuity: BEN remembers the last few lines he spoke, so each new line builds
+// on the thread (his hidden message) instead of repeating.
+std::deque<std::string> g_history;
+std::mutex g_history_mtx;
+constexpr size_t BEN_HISTORY_MAX = 5;
+
+// Real-world clock (HH:MM) - BEN knowing the actual hour is part of the dread.
+std::string real_clock() {
+    std::time_t t = std::time(nullptr);
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d", tm.tm_hour, tm.tm_min);
+    return std::string(buf);
+}
+
+// The computer account the real person is signed in as. BEN knowing this real
+// name - not the in-game save name - is the fourth wall fully gone. Cached once.
+const std::string& os_username() {
+    static const std::string name = []() -> std::string {
+#if defined(_WIN32)
+        if (const char* u = std::getenv("USERNAME")) { if (*u) return u; }
+#else
+        if (const char* u = std::getenv("USER")) { if (*u) return u; }
+        if (const char* u = std::getenv("LOGNAME")) { if (*u) return u; }
+        if (struct passwd* pw = getpwuid(getuid())) {
+            if (pw->pw_name && *pw->pw_name) {
+                return pw->pw_name;
+            }
+        }
+#endif
+        return "you";
+    }();
+    return name;
+}
+
+// How bold BEN is right now, derived from his mood (thought count).
+const char* mood_descriptor(unsigned mood) {
+    if (mood < BEN_MOOD_CALM_THOUGHTS) {
+        return "You are still testing them. Stay cryptic and almost gentle.";
+    }
+    if (mood < 10) {
+        return "You are growing bolder. Let a little more of the truth show.";
+    }
+    return "You are done hiding. Be direct, intimate, and menacing.";
 }
 
 std::mutex g_config_mtx;
@@ -151,6 +232,9 @@ int action_code_from_name(const std::string& name) {
     if (name == "say") {
         return BEN_ACTION_SAY;
     }
+    if (name == "interrupt") {
+        return BEN_ACTION_INTERRUPT;
+    }
     if (name == "spawn_statue") {
         return BEN_ACTION_SPAWN_STATUE;
     }
@@ -168,7 +252,7 @@ Decision call_ollama(const std::string& endpoint, const std::string& model,
 
         json body = {
             {"model", model},
-            {"system", kBenSystem},
+            {"system", std::string(kBenLore) + "\n\n" + kBenSystem},
             {"prompt", situation},
             {"stream", false},
             {"format", "json"}, // constrain the model to valid JSON
@@ -200,7 +284,7 @@ Decision call_ollama(const std::string& endpoint, const std::string& model,
         }
 
         d.action = action_code_from_name(inner.value("action", std::string{}));
-        if (d.action == BEN_ACTION_SAY) {
+        if (d.action == BEN_ACTION_SAY || d.action == BEN_ACTION_INTERRUPT) {
             d.text = inner.value("text", std::string{});
         }
         return d;
@@ -262,11 +346,31 @@ void ben_bridge_think(uint8_t* rdram, recomp_context* ctx) {
             model = g_model;
         }
 
-        Decision d = call_ollama(endpoint, model, situation);
-
-        // Escalating mood: if BEN didn't already choose the statue, he may still
-        // reach for it, with a probability that grows as his mood rises.
         unsigned mood = g_mood.fetch_add(1);
+
+        // Assemble the full prompt: the game situation, the real-world time, how
+        // bold BEN feels, and the fragments he has already let slip (so he builds
+        // the message instead of repeating himself).
+        std::string prompt = situation;
+        prompt += "\nThe real person playing is signed in to this computer as \"" +
+                  os_username() + "\". That is who you are speaking to - not the hero "
+                  "on screen.";
+        prompt += "\nThe real-world time is " + real_clock() + ".";
+        prompt += "\n";
+        prompt += mood_descriptor(mood);
+        {
+            std::lock_guard<std::mutex> hlock(g_history_mtx);
+            if (!g_history.empty()) {
+                prompt += "\nFragments you have already let slip (continue the thread, do not repeat them):";
+                for (const std::string& line : g_history) {
+                    prompt += "\n- " + line;
+                }
+            }
+        }
+
+        Decision d = call_ollama(endpoint, model, prompt);
+
+        // Escalating mood may turn a spoken turn into a wordless statue.
         if (d.action != BEN_ACTION_SPAWN_STATUE) {
             int chance = 0;
             if (mood > BEN_MOOD_CALM_THOUGHTS) {
@@ -283,10 +387,10 @@ void ben_bridge_think(uint8_t* rdram, recomp_context* ctx) {
         }
 
         std::string text;
-        if (d.action == BEN_ACTION_SAY) {
+        if (d.action == BEN_ACTION_SAY || d.action == BEN_ACTION_INTERRUPT) {
             text = sanitize_line(d.text);
             if (text.empty()) {
-                d.action = BEN_ACTION_NONE; // an empty line is a failed "say"
+                d.action = BEN_ACTION_NONE; // an empty line is a failed spoken action
             }
         }
         // Only fall back when there's no valid action at all (a wordless action
@@ -295,6 +399,15 @@ void ben_bridge_think(uint8_t* rdram, recomp_context* ctx) {
             d.action = BEN_ACTION_SAY;
             text = fallback_line();
             std::printf("[ben_bridge] using fallback line\n");
+        }
+
+        // Remember spoken lines so the next thought continues the thread.
+        if ((d.action == BEN_ACTION_SAY || d.action == BEN_ACTION_INTERRUPT) && !text.empty()) {
+            std::lock_guard<std::mutex> hlock(g_history_mtx);
+            g_history.push_back(text);
+            while (g_history.size() > BEN_HISTORY_MAX) {
+                g_history.pop_front();
+            }
         }
 
         {

@@ -54,6 +54,12 @@ void ben_director_ai_tick(PlayState* play) {
     BenCommand cmd = { 0 };
     switch (action) {
         case BEN_ACTION_SAY:
+            // BEN's usual voice: wait and bleed into the next textbox the player
+            // opens (a sign, an NPC), rather than interrupting them.
+            ben_hijack_set_pending(text);
+            break;
+        case BEN_ACTION_INTERRUPT:
+            // Urgent: force BEN's own textbox on screen right now.
             cmd.power = BEN_POWER_TEXTBOX;
             ben_cmd_set_text(&cmd, text);
             ben_queue_push(&cmd);

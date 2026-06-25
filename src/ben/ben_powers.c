@@ -83,14 +83,13 @@ void ben_power_hush(void) {
     recomp_printf("[BEN] hush\n");
 }
 
-// --- TEXTBOX: BEN hijacks the game's native dialogue system ------------------
+// --- TEXTBOX: BEN wears the game's native dialogue system --------------------
 //
-// Sentinel text id: not a real message and below the 0x4E20 credits cutoff, so
-// Message_OpenText takes the English (NES) path and Message_FindMessageNES
-// harmlessly falls back to the first table entry (valid DMA). We immediately
-// overwrite that loaded message with BEN's own bytes before it gets decoded.
-#define BEN_TEXT_ID 0x3FFF
-
+// BEN_TEXT_ID (in ben_powers.h) is an unused id below the 0x4E20 credits cutoff,
+// so Message_OpenText takes the English (NES) path and Message_FindMessageNES
+// harmlessly falls back to the first table entry (valid DMA). We overwrite that
+// loaded message with BEN's own bytes before it gets decoded.
+//
 // MM NES message format: 11-byte header, ASCII body, 0xBF (MESSAGE_END) terminator.
 #define BEN_MSG_END     0xBF
 #define BEN_MSG_NEWLINE 0x11 // MM NES newline control code
@@ -101,32 +100,29 @@ void ben_power_hush(void) {
 #define BEN_WRAP_WIDTH  28
 #define BEN_MAX_LINES   3
 
-void ben_power_textbox(PlayState* play, const char* text) {
+void ben_write_message(PlayState* play, const char* text, bool keep_header) {
     MessageContext* msgCtx = &play->msgCtx;
     Font* font = &msgCtx->font;
     char* buf = font->msgBuf.schar;
     s32 i;
     s32 j;
 
-    // Only intrude when nothing else is on screen, so we don't stomp a real
-    // textbox or fire during a state that can't display one.
-    if (msgCtx->msgMode != MSGMODE_NONE) {
-        return;
+    // The message format is an 11-byte header followed by the body. For a hijack
+    // we keep the loaded header exactly as-is (box type, nextTextId, end behavior)
+    // so the conversation behaves like the original and the NPC never freezes;
+    // for BEN's own box we write a fresh black-box header. Either way the body
+    // starts at byte 11.
+    if (keep_header) {
+        i = 11;
+    } else {
+        i = 0;
+        buf[i++] = 0x00; buf[i++] = 0x00;            // unk11F08 -> textBoxType 0 (black)
+        buf[i++] = (char)0xFE;                        // itemId: none
+        buf[i++] = (char)0xFF; buf[i++] = (char)0xFF; // nextTextId = 0xFFFF (no follow-up)
+        buf[i++] = 0x00; buf[i++] = 0x00;            // unk1206C
+        buf[i++] = 0x00; buf[i++] = 0x00;       // unk12070
+        buf[i++] = 0x00; buf[i++] = 0x00;       // unk12074
     }
-
-    // Load a real message (safe DMA + message-system setup), then overwrite it.
-    Message_StartTextbox(play, BEN_TEXT_ID, NULL);
-
-    // 11-byte header: unk11F08 = 0x0000 -> textBoxType 0 (black box); itemId 0xFE
-    // (none); remaining header fields zero. Message_DecodeNES calls
-    // Message_DecodeHeader, which consumes exactly these 11 bytes.
-    i = 0;
-    buf[i++] = 0x00; buf[i++] = 0x00;            // unk11F08 (box type/pos/flags)
-    buf[i++] = (char)0xFE;                        // itemId: none
-    buf[i++] = (char)0xFF; buf[i++] = (char)0xFF; // nextTextId = 0xFFFF: no follow-up box
-    buf[i++] = 0x00; buf[i++] = 0x00;            // unk1206C
-    buf[i++] = 0x00; buf[i++] = 0x00;       // unk12070
-    buf[i++] = 0x00; buf[i++] = 0x00;       // unk12074
 
     // ASCII body (the NES font is ASCII-indexed), word-wrapped into lines so it
     // fits the box and stays within the renderer's 3-line limit.
@@ -176,16 +172,29 @@ void ben_power_textbox(PlayState* play, const char* text) {
     msgCtx->msgBufPos = 0;
     msgCtx->decodedTextLen = 0;
 
-    // Re-parse the header for OUR bytes (mirrors Message_OpenText) so the black
-    // box is chosen instead of the sentinel message's box type.
-    msgCtx->unk11F08 = (((u8)buf[0]) << 8) | (u8)buf[1];
-    msgCtx->unk11F18 = (msgCtx->unk11F08 & 0xF000) >> 12;
-    msgCtx->textBoxType = (msgCtx->unk11F08 & 0xF00) >> 8;
-    msgCtx->textBoxPos = (msgCtx->unk11F08 & 0xF0) >> 4;
-    msgCtx->unk11F0C = msgCtx->unk11F08 & 0xF;
-    msgCtx->itemId = 0xFE;
+    if (!keep_header) {
+        // Re-parse our fresh header (mirrors Message_OpenText) so the black box is
+        // chosen. For a hijack we leave the original parse alone so the NPC's flow
+        // is byte-for-byte unchanged.
+        msgCtx->unk11F08 = (((u8)buf[0]) << 8) | (u8)buf[1];
+        msgCtx->unk11F18 = (msgCtx->unk11F08 & 0xF000) >> 12;
+        msgCtx->textBoxType = (msgCtx->unk11F08 & 0xF00) >> 8;
+        msgCtx->textBoxPos = (msgCtx->unk11F08 & 0xF0) >> 4;
+        msgCtx->unk11F0C = msgCtx->unk11F08 & 0xF;
+        msgCtx->itemId = 0xFE;
+    }
+}
 
-    recomp_printf("[BEN] textbox: %s\n", text);
+void ben_power_textbox(PlayState* play, const char* text) {
+    // Only intrude when nothing else is on screen.
+    if (play->msgCtx.msgMode != MSGMODE_NONE) {
+        return;
+    }
+    // Load a real message (safe DMA + message-system setup), then overwrite it
+    // with BEN's own fresh black box.
+    Message_StartTextbox(play, BEN_TEXT_ID, NULL);
+    ben_write_message(play, text, false);
+    recomp_printf("[BEN] interrupt: %s\n", text);
 }
 
 void ben_power_spawn_statue(PlayState* play) {
