@@ -1,15 +1,13 @@
 #include "ben/ben.h"
 
-// AI director: drives BEN through the native bridge, continuously. The loop is:
-//   cool down (only while the player is in control) -> ask the bridge to think
-//   about the current situation -> poll until an action arrives -> carry it out
-//   -> back to the cooldown. So BEN keeps reacting as you play, not just once.
-//
-// Because the bridge is asynchronous, none of this blocks a frame. Pacing is a
-// placeholder for M4b's escalating "mood" (he should grow bolder over time).
+// AI director: drives BEN through the native bridge, continuously. BEN THINKS on
+// a cadence regardless of game state - even during conversations and cutscenes -
+// so he always has a fresh line ready to bleed into the next textbox (including
+// cutscene dialogue). Only his *intrusive* actions (forcing his own box, spawning
+// a statue) are gated to real gameplay, so he never breaks a cutscene with them.
 
-#define BEN_AI_FIRST_DELAY 120 // ~4s of control before BEN's first action
-#define BEN_AI_COOLDOWN    600 // ~20s between actions thereafter
+#define BEN_AI_FIRST_DELAY 120 // ~4s before BEN's first thought
+#define BEN_AI_COOLDOWN    600 // ~20s between thoughts thereafter
 
 typedef enum {
     BEN_AI_COOLING, // waiting out the cooldown before the next thought
@@ -21,13 +19,8 @@ static s32        sTimer;
 static s32        sDelay = BEN_AI_FIRST_DELAY;
 
 void ben_director_ai_tick(PlayState* play) {
-    // Only act while the player is genuinely in control. We pause (rather than
-    // reset) so a brief cutscene/textbox doesn't restart the whole wait.
-    if (!ben_player_in_control(play)) {
-        return;
-    }
-
     if (sState == BEN_AI_COOLING) {
+        // The cooldown advances no matter what the player is doing.
         sTimer++;
         if (sTimer < sDelay) {
             return;
@@ -49,30 +42,33 @@ void ben_director_ai_tick(PlayState* play) {
 
     recomp_printf("[BEN] (ai) action=%d: %s\n", action, text);
 
-    // Map the chosen action to a power. The toolkit grows here; unknown actions
-    // are simply ignored.
     BenCommand cmd = { 0 };
     switch (action) {
         case BEN_ACTION_SAY:
-            // BEN's usual voice: wait and bleed into the next textbox the player
-            // opens (a sign, an NPC), rather than interrupting them.
+            // Passive: wait and bleed into the next textbox the game opens - an
+            // NPC, a sign, or cutscene dialogue. Safe in any state.
             ben_hijack_set_pending(text);
             break;
         case BEN_ACTION_INTERRUPT:
-            // Urgent: force BEN's own textbox on screen right now.
-            cmd.power = BEN_POWER_TEXTBOX;
-            ben_cmd_set_text(&cmd, text);
-            ben_queue_push(&cmd);
+            // Intrusive: only force BEN's own box during free gameplay, so it
+            // never interrupts a cutscene or an active conversation.
+            if (ben_player_in_control(play)) {
+                cmd.power = BEN_POWER_TEXTBOX;
+                ben_cmd_set_text(&cmd, text);
+                ben_queue_push(&cmd);
+            }
             break;
         case BEN_ACTION_SPAWN_STATUE:
-            cmd.power = BEN_POWER_SPAWN_STATUE;
-            ben_queue_push(&cmd);
+            // Intrusive: only spawn during free gameplay.
+            if (ben_player_in_control(play)) {
+                cmd.power = BEN_POWER_SPAWN_STATUE;
+                ben_queue_push(&cmd);
+            }
             break;
         default:
             break;
     }
 
-    // Back to waiting for the next one.
     sTimer = 0;
     sDelay = BEN_AI_COOLDOWN;
     sState = BEN_AI_COOLING;
