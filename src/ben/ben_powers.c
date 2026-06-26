@@ -1,4 +1,5 @@
 #include "ben/ben.h"
+#include "overlays/actors/ovl_En_Torch2/z_en_torch2.h" // EnTorch2 (BEN's statue) struct
 
 // BEN's voice: a passive, full-screen overlay with a single line of text anchored
 // near the bottom of the screen. It never captures input, so the game keeps
@@ -197,20 +198,113 @@ void ben_power_textbox(PlayState* play, const char* text) {
     recomp_printf("[BEN] interrupt: %s\n", text);
 }
 
-void ben_power_spawn_statue(PlayState* play) {
+// BEN's avatar is a single Elegy of Emptiness statue (En_Torch2). We keep exactly
+// one: rather than spawn a new one (which accumulates statues AND, on despawn,
+// sets a respawn point because the Elegy statue is a warp point), we relocate the
+// existing one the same way the game moves an Elegy shell. Always Human form.
+static Actor* sBenStatue = NULL;
+
+static void ben_place_statue(PlayState* play, f32 x, f32 y, f32 z, s16 yaw) {
+    // Validate our tracked statue against the live actor list (it's gone after a
+    // scene change), so we never touch a stale pointer.
+    bool alive = false;
+    if (sBenStatue != NULL) {
+        Actor* a = play->actorCtx.actorLists[ACTORCAT_ITEMACTION].first;
+        while (a != NULL) {
+            if (a == sBenStatue) {
+                alive = true;
+                break;
+            }
+            a = a->next;
+        }
+        if (!alive) {
+            sBenStatue = NULL;
+        }
+    }
+
+    if (alive) {
+        // Relocate the existing statue (mirrors the game's Elegy-shell move).
+        EnTorch2* statue = (EnTorch2*)sBenStatue;
+        sBenStatue->world.pos.x = x;
+        sBenStatue->world.pos.y = y;
+        sBenStatue->world.pos.z = z;
+        sBenStatue->home.pos = sBenStatue->world.pos;
+        sBenStatue->shape.rot.y = yaw;
+        sBenStatue->home.rot.y = yaw;
+        statue->state = 0;
+        statue->framesUntilNextState = 20;
+    } else {
+        sBenStatue = Actor_Spawn(&play->actorCtx, play, ACTOR_EN_TORCH2, x, y, z, 0, yaw, 0,
+                                 PLAYER_FORM_HUMAN);
+    }
+}
+
+// place: where BEN appears, relative to the player ("far" = watch from a distance
+// [default], "behind" = loom behind, "near" = close ahead, "here" = at the player).
+void ben_power_spawn_statue(PlayState* play, const char* place) {
     Player* player = GET_PLAYER(play);
     if (player == NULL) {
         return;
     }
 
-    // Spawn the Elegy of Emptiness statue (En_Torch2) of the player's current form
-    // where they stand, facing as they face — exactly how the game makes it
-    // (z_player.c func_80848640), minus the respawn-point setup and transform
-    // beam. En_Torch2 uses gameplay_keep, so it is safe to spawn in any scene.
-    Actor_Spawn(&play->actorCtx, play, ACTOR_EN_TORCH2,
-                player->actor.world.pos.x, player->actor.world.pos.y, player->actor.world.pos.z,
-                0, player->actor.shape.rot.y, 0,
-                player->transformation);
+    s16 pyaw = player->actor.shape.rot.y;
+    f32 px = player->actor.world.pos.x;
+    f32 py = player->actor.world.pos.y;
+    f32 pz = player->actor.world.pos.z;
+    f32 sn = Math_SinS(pyaw);
+    f32 cs = Math_CosS(pyaw);
 
-    recomp_printf("[BEN] statue spawned (form %d)\n", (s32)player->transformation);
+    f32 dist = 500.0f;       // far ahead by default — watching from a distance
+    f32 dir = 1.0f;          // +1 ahead of the player, -1 behind
+    s16 yaw = pyaw + 0x8000; // face back toward the player
+
+    char c = (place != NULL) ? place[0] : 'f';
+    if (c == 'b' || c == 'B') {        // behind
+        dist = 120.0f;
+        dir = -1.0f;
+        yaw = pyaw;
+    } else if (c == 'n' || c == 'N') { // near, ahead
+        dist = 180.0f;
+    } else if (c == 'h' || c == 'H') { // here, at the player
+        dist = 0.0f;
+        dir = 0.0f;
+    }
+
+    f32 x = px + (sn * dist * dir);
+    f32 z = pz + (cs * dist * dir);
+
+    // Y uses the player's height (no floor raycast yet) - fine on flatter ground.
+    ben_place_statue(play, x, py, z, yaw);
+
+    recomp_printf("[BEN] statue placed (%s) at %d,%d\n", (place != NULL) ? place : "far",
+                  (s32)x, (s32)z);
+}
+
+// REVEAL: BEN appears at the player in the Elegy beam of light - "I am here."
+// Relocates the single avatar to Link and spawns the Eff_Change beam, exactly as
+// the real elegy does. Shared by BEN's autonomous reveal action and the player's
+// Elegy song (the patch below).
+void ben_power_reveal_statue(PlayState* play) {
+    Player* player = GET_PLAYER(play);
+    if (player == NULL) {
+        return;
+    }
+    f32 x = player->actor.world.pos.x;
+    f32 y = player->actor.world.pos.y;
+    f32 z = player->actor.world.pos.z;
+    s16 yaw = player->actor.shape.rot.y;
+
+    ben_place_statue(play, x, y, z, yaw);
+    Actor_Spawn(&play->actorCtx, play, ACTOR_EFF_CHANGE, x, y, z, 0, yaw, 0,
+                (GET_PLAYER_FORM << 3) | player->transformation);
+
+    recomp_printf("[BEN] reveal (elegy beam) at the player\n");
+}
+
+// The Elegy of Emptiness summons BEN: replace the game's elegy handler so the
+// player's song triggers the very same reveal (one avatar to Link with the beam),
+// rather than creating a separate per-form statue.
+RECOMP_PATCH void func_80848640(PlayState* play, Player* this) {
+    (void)this;
+    ben_power_reveal_statue(play);
 }

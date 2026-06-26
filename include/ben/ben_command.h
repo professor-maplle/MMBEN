@@ -19,7 +19,8 @@ typedef enum {
     BEN_POWER_SPEAK,        // overlay line of dialogue. text = line, ix = frames to show
     BEN_POWER_TEXTBOX,      // speak through the game's native dialogue box. text = line
     BEN_POWER_HUSH,         // hide the dialogue overlay
-    BEN_POWER_SPAWN_STATUE, // spawn BEN's Elegy of Emptiness statue by the player
+    BEN_POWER_SPAWN_STATUE,  // place BEN's avatar silently (text = placement keyword)
+    BEN_POWER_REVEAL_STATUE, // appear at the player with the Elegy beam reveal
     BEN_POWER_COUNT
 } BenPowerId;
 

@@ -32,7 +32,10 @@ void ben_executor_tick(PlayState* play) {
                 ben_power_textbox(play, cmd.text);
                 break;
             case BEN_POWER_SPAWN_STATUE:
-                ben_power_spawn_statue(play);
+                ben_power_spawn_statue(play, cmd.text); // text = placement keyword
+                break;
+            case BEN_POWER_REVEAL_STATUE:
+                ben_power_reveal_statue(play);
                 break;
             case BEN_POWER_HUSH:
                 ben_power_hush();

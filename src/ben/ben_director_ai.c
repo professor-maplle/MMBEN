@@ -59,9 +59,18 @@ void ben_director_ai_tick(PlayState* play) {
             }
             break;
         case BEN_ACTION_SPAWN_STATUE:
-            // Intrusive: only spawn during free gameplay.
+            // Intrusive: only place the avatar during free gameplay. text holds
+            // BEN's chosen placement keyword.
             if (ben_player_in_control(play)) {
                 cmd.power = BEN_POWER_SPAWN_STATUE;
+                ben_cmd_set_text(&cmd, text);
+                ben_queue_push(&cmd);
+            }
+            break;
+        case BEN_ACTION_REVEAL_STATUE:
+            // Intrusive: only reveal during free gameplay (spawns the beam).
+            if (ben_player_in_control(play)) {
+                cmd.power = BEN_POWER_REVEAL_STATUE;
                 ben_queue_push(&cmd);
             }
             break;

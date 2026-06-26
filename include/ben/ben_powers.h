@@ -31,8 +31,13 @@ void ben_write_message(PlayState* play, const char* text, bool keep_header);
 // No-op if a message is already up.
 void ben_power_textbox(PlayState* play, const char* text);
 
-// SPAWN_STATUE: make BEN's avatar — the Elegy of Emptiness statue of the player's
-// current form — appear where the player stands, exactly as the game creates it.
-void ben_power_spawn_statue(PlayState* play);
+// SPAWN_STATUE: place BEN's avatar — a single Human Elegy of Emptiness statue —
+// somewhere relative to the player (`place`: "far"/"behind"/"near"/"here").
+// Relocates the one existing statue rather than spawning more. Silent (no anim).
+void ben_power_spawn_statue(PlayState* play, const char* place);
+
+// REVEAL_STATUE: BEN appears at the player in the Elegy of Emptiness beam of light
+// — the "be seen" mode. Same effect the player's Elegy song now triggers.
+void ben_power_reveal_statue(PlayState* play);
 
 #endif

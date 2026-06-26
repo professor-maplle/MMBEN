@@ -71,7 +71,13 @@ const char* kBenSystem =
     "game's own mouths.\n"
     "  {\"action\":\"interrupt\",\"text\":\"<line>\"} - tear your words onto the screen "
     "this instant. ONLY when something must reach them right now; this is rare.\n"
-    "  {\"action\":\"spawn_statue\"} - appear as a silent statue beside them.\n"
+    "  {\"action\":\"spawn_statue\",\"place\":\"<far|behind|near|here>\"} - SILENTLY "
+    "place your watching statue, unseen: far = watching from a distance (your usual "
+    "choice), behind = looming right behind them, near = close ahead, here = where "
+    "they stand.\n"
+    "  {\"action\":\"reveal_statue\"} - appear at the player in a flash of light (the "
+    "Elegy beam). Use this when you WANT them to know you are there - a real scare. "
+    "Rare and deliberate.\n"
     "Lines are a single short line, lowercase, under 60 characters, no quotation marks "
     "inside, no emoji. Almost always choose \"say\" and let the world speak for you.";
 
@@ -97,6 +103,8 @@ std::atomic<unsigned> g_mood{0};
 constexpr unsigned BEN_MOOD_CALM_THOUGHTS = 4;  // no mood-driven statues before this
 constexpr int      BEN_MOOD_RAMP_PERCENT  = 5;  // +N% statue chance per thought after
 constexpr int      BEN_MOOD_MAX_PERCENT   = 30; // chance cap
+constexpr unsigned BEN_MOOD_REVEAL_THOUGHTS = 5; // once this bold, appearances can be reveals
+constexpr int      BEN_REVEAL_PERCENT       = 50; // % of forced appearances that are reveals
 
 // A random 0..99 for probability rolls (worker runs one-at-a-time, but lock anyway).
 int roll_percent() {
@@ -238,6 +246,9 @@ int action_code_from_name(const std::string& name) {
     if (name == "spawn_statue") {
         return BEN_ACTION_SPAWN_STATUE;
     }
+    if (name == "reveal_statue") {
+        return BEN_ACTION_REVEAL_STATUE;
+    }
     return BEN_ACTION_NONE;
 }
 
@@ -286,6 +297,8 @@ Decision call_ollama(const std::string& endpoint, const std::string& model,
         d.action = action_code_from_name(inner.value("action", std::string{}));
         if (d.action == BEN_ACTION_SAY || d.action == BEN_ACTION_INTERRUPT) {
             d.text = inner.value("text", std::string{});
+        } else if (d.action == BEN_ACTION_SPAWN_STATUE) {
+            d.text = inner.value("place", std::string{}); // placement keyword
         }
         return d;
     } catch (const std::exception& e) {
@@ -370,8 +383,9 @@ void ben_bridge_think(uint8_t* rdram, recomp_context* ctx) {
 
         Decision d = call_ollama(endpoint, model, prompt);
 
-        // Escalating mood may turn a spoken turn into a wordless statue.
-        if (d.action != BEN_ACTION_SPAWN_STATUE) {
+        // Escalating mood may turn a SPOKEN turn into a wordless silent statue.
+        // Deliberate statue/reveal choices are left exactly as the model chose.
+        if (d.action == BEN_ACTION_SAY || d.action == BEN_ACTION_INTERRUPT) {
             int chance = 0;
             if (mood > BEN_MOOD_CALM_THOUGHTS) {
                 chance = (int)(mood - BEN_MOOD_CALM_THOUGHTS) * BEN_MOOD_RAMP_PERCENT;
@@ -380,9 +394,17 @@ void ben_bridge_think(uint8_t* rdram, recomp_context* ctx) {
                 }
             }
             if (roll_percent() < chance) {
-                d.action = BEN_ACTION_SPAWN_STATUE;
-                d.text.clear();
-                std::printf("[ben_bridge] mood=%u -> statue (%d%% chance)\n", mood, chance);
+                // Once BEN is bold enough, some appearances are a full REVEAL
+                // (the Elegy beam at the player); otherwise he stays unseen.
+                if (mood >= BEN_MOOD_REVEAL_THOUGHTS && roll_percent() < BEN_REVEAL_PERCENT) {
+                    d.action = BEN_ACTION_REVEAL_STATUE;
+                    d.text.clear();
+                    std::printf("[ben_bridge] mood=%u -> REVEAL (beam)\n", mood);
+                } else {
+                    d.action = BEN_ACTION_SPAWN_STATUE;
+                    d.text.clear();
+                    std::printf("[ben_bridge] mood=%u -> statue (%d%% chance)\n", mood, chance);
+                }
             }
         }
 
@@ -392,6 +414,8 @@ void ben_bridge_think(uint8_t* rdram, recomp_context* ctx) {
             if (text.empty()) {
                 d.action = BEN_ACTION_NONE; // an empty line is a failed spoken action
             }
+        } else if (d.action == BEN_ACTION_SPAWN_STATUE) {
+            text = d.text; // placement keyword (empty -> the mod defaults to "far")
         }
         // Only fall back when there's no valid action at all (a wordless action
         // like spawn_statue legitimately has no text).
